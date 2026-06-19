@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.9.34728.123
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AeroScan.PointCloud", "AeroScan.PointCloud\AeroScan.PointCloud.csproj", "{A2D297C2-2AD5-4852-9AD7-AB3EB3358632}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A2D297C2-2AD5-4852-9AD7-AB3EB3358632}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A2D297C2-2AD5-4852-9AD7-AB3EB3358632}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A2D297C2-2AD5-4852-9AD7-AB3EB3358632}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A2D297C2-2AD5-4852-9AD7-AB3EB3358632}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {16419E74-CFEF-43EE-9139-9DF0D18346DD}
+	EndGlobalSection
+EndGlobal
