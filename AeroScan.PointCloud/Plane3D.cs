@@ -1,84 +1,130 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Numerics;
+﻿using System.Numerics;
 
-namespace AeroScan.PointCloud
+namespace AeroScan.PointCloud;
+
+/// <summary>
+/// 최소자승법으로 피팅한 평면. Z = aX + bY + c 형태.
+/// 항공 제조 검사처럼 표면이 거의 평탄한 경우에 수치적으로 안정적.
+/// </summary>
+public class Plane3D
 {
-	
-	/// <summary>
-	/// 단위 법선벡터와 평면 위의 한 점으로 정의되는 무한 평면.
-	/// 방정식: Normal · (P - Origin) = 0
-	/// </summary>
-	public class Plane3D
+	public Vector3 Normal { get; }
+	public Vector3 Origin { get; }
+
+	public Plane3D(Vector3 normal, Vector3 origin)
 	{
-		public Vector3 Normal { get; }
-		public Vector3 Origin { get; }
+		Normal = Vector3.Normalize(normal);
+		Origin = origin;
+	}
 
-		public Plane3D(Vector3 normal, Vector3 origin)
+	/// <summary>
+	/// 점에서 평면까지의 부호있는 거리 (양수=위, 음수=아래)
+	/// </summary>
+	public double SignedDistance(Point3D p)
+	{
+		var v = new Vector3((float)p.X, (float)p.Y, (float)p.Z) - Origin;
+		return Vector3.Dot(Normal, v);
+	}
+
+	/// <summary>
+	/// 최소자승법으로 점군의 최적평면 피팅.
+	/// Z = aX + bY + c 로 풀고 법선벡터 (-a, -b, 1) 계산.
+	/// </summary>
+	public static Plane3D? FitToPoints(IReadOnlyList<Point3D> points)
+	{
+		if (points.Count < 3)
+			return null;
+
+		int n = points.Count;
+		double sx = 0, sy = 0, sz = 0;
+		double sx2 = 0, sy2 = 0, sxy = 0, sxz = 0, syz = 0;
+
+		foreach (var p in points)
 		{
-			Normal = Vector3.Normalize(normal);
-			Origin = origin;
+			sx += p.X; sy += p.Y; sz += p.Z;
+			sx2 += p.X * p.X;
+			sy2 += p.Y * p.Y;
+			sxy += p.X * p.Y;
+			sxz += p.X * p.Z;
+			syz += p.Y * p.Z;
 		}
 
-		/// <summary>
-		/// 점에서 평면까지의 부호있는 거리 (양수=위, 음수=아래)
-		/// </summary>
-		public double SignedDistance(Point3D p)
+		// 정규방정식 [sx2 sxy sx] [a]   [sxz]
+		//            [sxy sy2 sy] [b] = [syz]
+		//            [sx  sy   n] [c]   [sz ]
+		double[,] A =
 		{
-			var v = new Vector3((float)p.X, (float)p.Y, (float)p.Z) - Origin;
-			return Vector3.Dot(Normal, v);
+			{ sx2, sxy, sx },
+			{ sxy, sy2, sy },
+			{ sx,  sy,  n  }
+		};
+		double[] b = { sxz, syz, sz };
+
+		var sol = SolveLinear3x3(A, b);
+		if (sol is null)
+			return null;
+
+		double a = sol[0], bCoef = sol[1], c = sol[2];
+
+		// 법선벡터: Z = aX + bY + c 의 법선은 (-a, -b, 1)
+		var normal = new Vector3((float)-a, (float)-bCoef, 1f);
+
+		// 원점: 무게중심을 평면에 투영
+		double cx = sx / n, cy = sy / n;
+		double cz = a * cx + bCoef * cy + c;
+		var origin = new Vector3((float)cx, (float)cy, (float)cz);
+
+		return new Plane3D(normal, origin);
+	}
+
+	/// <summary>
+	/// 가우스 소거법으로 3x3 연립방정식 풀기
+	/// </summary>
+	private static double[]? SolveLinear3x3(double[,] A, double[] b)
+	{
+		// 확장행렬 만들기
+		double[,] m = new double[3, 4];
+		for (int i = 0; i < 3; i++)
+		{
+			for (int j = 0; j < 3; j++) m[i, j] = A[i, j];
+			m[i, 3] = b[i];
 		}
 
-		/// <summary>
-		/// PCA 공분산행렬로 점군의 최적평면 피팅.
-		/// </summary>
-		public static Plane3D? FitToPoints(IReadOnlyList<Point3D> points)
+		// 전진 소거
+		for (int col = 0; col < 3; col++)
 		{
-			if (points.Count < 3)
-				return null;
+			// 피벗 선택 (부분 피벗팅)
+			int pivot = col;
+			for (int row = col + 1; row < 3; row++)
+				if (Math.Abs(m[row, col]) > Math.Abs(m[pivot, col]))
+					pivot = row;
 
-			// 무게중심
-			double cx = 0, cy = 0, cz = 0;
-			foreach (var p in points) { cx += p.X; cy += p.Y; cz += p.Z; }
-			cx /= points.Count; cy /= points.Count; cz /= points.Count;
+			// 행 교환
+			for (int j = 0; j <= 3; j++)
+				(m[col, j], m[pivot, j]) = (m[pivot, j], m[col, j]);
 
-			// 공분산 행렬 (대칭 3x3)
-			double xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
-			foreach (var p in points)
+			if (Math.Abs(m[col, col]) < 1e-12)
+				return null; // 특이행렬
+
+			// 소거
+			for (int row = col + 1; row < 3; row++)
 			{
-				double dx = p.X - cx, dy = p.Y - cy, dz = p.Z - cz;
-				xx += dx * dx; xy += dx * dy; xz += dx * dz;
-				yy += dy * dy; yz += dy * dz; zz += dz * dz;
+				double factor = m[row, col] / m[col, col];
+				for (int j = col; j <= 3; j++)
+					m[row, j] -= factor * m[col, j];
 			}
-
-			var normal = SmallestEigenvector(xx, xy, xz, yy, yz, zz);
-			var origin = new Vector3((float)cx, (float)cy, (float)cz);
-
-			return new Plane3D(normal, origin);
 		}
 
-		private static Vector3 SmallestEigenvector(
-			double xx, double xy, double xz,
-			double yy, double yz, double zz)
+		// 후진 대입
+		double[] x = new double[3];
+		for (int i = 2; i >= 0; i--)
 		{
-			var r0 = new Vector3((float)(yy * zz - yz * yz), (float)(xz * yz - xy * zz), (float)(xy * yz - xz * yy));
-			var r1 = new Vector3((float)(xz * yz - xy * zz), (float)(xx * zz - xz * xz), (float)(xy * xz - yz * xx));
-			var r2 = new Vector3((float)(xy * yz - xz * yy), (float)(xy * xz - yz * xx), (float)(xx * yy - xy * xy));
-
-			var best = r0.LengthSquared() >= r1.LengthSquared()
-				? (r0.LengthSquared() >= r2.LengthSquared() ? r0 : r2)
-				: (r1.LengthSquared() >= r2.LengthSquared() ? r1 : r2);
-
-			var candidate = Vector3.Cross(
-				r0.LengthSquared() > r1.LengthSquared() ? r0 : r1,
-				r0.LengthSquared() > r2.LengthSquared() ? r2 : r0);
-
-			return candidate.LengthSquared() > 0
-				? Vector3.Normalize(candidate)
-				: Vector3.Normalize(best);
+			x[i] = m[i, 3];
+			for (int j = i + 1; j < 3; j++)
+				x[i] -= m[i, j] * x[j];
+			x[i] /= m[i, i];
 		}
+
+		return x;
 	}
 }
