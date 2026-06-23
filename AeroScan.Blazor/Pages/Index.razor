@@ -1,0 +1,124 @@
+﻿@page "/"
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject NavigationManager Nav
+
+<PageTitle>AeroScan Inspector — Dashboard</PageTitle>
+
+<div class="page-header">
+    <h1>Inspection Dashboard</h1>
+    <p class="subtitle">Point cloud flatness inspection for aerospace parts</p>
+</div>
+
+@if (_loading)
+{
+    <div class="loading-state">
+        <div class="spinner"></div>
+        <p>Loading inspections…</p>
+    </div>
+}
+else if (_sessions is null || _sessions.Count == 0)
+{
+    <div class="empty-state">
+        <div class="empty-icon">📡</div>
+        <h2>No inspections yet</h2>
+        <p>Upload a point cloud file to start your first flatness inspection.</p>
+        <a href="/new-inspection" class="btn btn-primary">Start Inspection</a>
+    </div>
+}
+else
+{
+    <div class="stats-bar">
+        <div class="stat-card">
+            <span class="stat-value">@_sessions.Count</span>
+            <span class="stat-label">Total</span>
+        </div>
+        <div class="stat-card stat-card--pass">
+            <span class="stat-value">@_sessions.Count(s => s.Passed == true)</span>
+            <span class="stat-label">Passed</span>
+        </div>
+        <div class="stat-card stat-card--fail">
+            <span class="stat-value">@_sessions.Count(s => s.Passed == false)</span>
+            <span class="stat-label">Failed</span>
+        </div>
+        <div class="stat-card stat-card--pending">
+            <span class="stat-value">@_sessions.Count(s => s.Status == "Pending")</span>
+            <span class="stat-label">Pending</span>
+        </div>
+    </div>
+
+    <div class="table-wrapper">
+        <table class="inspection-table">
+            <thead>
+                <tr>
+                    <th>Part Name</th>
+                    <th>Part No.</th>
+                    <th>Points</th>
+                    <th>Flatness (mm)</th>
+                    <th>Tolerance (mm)</th>
+                    <th>RMS Dev.</th>
+                    <th>Result</th>
+                    <th>Date</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var s in _sessions)
+                {
+                    <tr class="table-row @(s.Passed == true ? "row--pass" : s.Passed == false ? "row--fail" : "")">
+                        <td class="td-bold">@s.PartName</td>
+                        <td class="td-mono">@s.PartNumber</td>
+                        <td>@s.PointCount.ToString("N0")</td>
+                        <td>@(s.FlatnessErrorMm.HasValue ? s.FlatnessErrorMm.Value.ToString("F4") : "—")</td>
+                        <td>±@s.ToleranceMm.ToString("F2")</td>
+                        <td>@(s.RmsDeviationMm.HasValue ? s.RmsDeviationMm.Value.ToString("F4") : "—")</td>
+                        <td>
+                            @if (s.Status == "Pending" || s.Status == "Running")
+                            {
+                                <span class="badge badge--pending">@s.Status</span>
+                            }
+                            else if (s.Passed == true)
+                            {
+                                <span class="badge badge--pass">✓ PASS</span>
+                            }
+                            else if (s.Passed == false)
+                            {
+                                <span class="badge badge--fail">✗ FAIL</span>
+                            }
+                            else
+                            {
+                                <span class="badge badge--error">Error</span>
+                            }
+                        </td>
+                        <td class="td-date">@s.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                        <td>
+                            <a href="/inspection/@s.Id" class="btn btn-sm">Details</a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<SessionSummaryDto>? _sessions;
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _sessions = await Http.GetFromJsonAsync<List<SessionSummaryDto>>("api/inspections");
+        }
+        catch { _sessions = []; }
+        finally { _loading = false; }
+    }
+
+    record SessionSummaryDto(
+        int Id, string PartName, string PartNumber, string FileName,
+        int PointCount, double ToleranceMm,
+        bool? Passed, double? FlatnessErrorMm, double? MinDeviationMm,
+        double? MaxDeviationMm, double? RmsDeviationMm, int? OutOfToleranceCount,
+        DateTime CreatedAt, string Status);
+}

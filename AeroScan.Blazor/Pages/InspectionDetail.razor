@@ -1,0 +1,175 @@
+﻿@page "/inspection/{Id:int}"
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject NavigationManager Nav
+
+<PageTitle>Inspection @Id — AeroScan</PageTitle>
+
+@if (_loading)
+{
+    <div class="loading-state"><div class="spinner"></div><p>Loading report…</p></div>
+}
+else if (_session is null)
+{
+    <div class="empty-state">
+        <p>Inspection not found.</p>
+        <a href="/" class="btn btn-primary">Back to Dashboard</a>
+    </div>
+}
+else
+{
+    <div class="page-header">
+        <div>
+            <h1>@_session.PartName</h1>
+            <p class="subtitle">Part No. @_session.PartNumber · @_session.FileName · @_session.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</p>
+        </div>
+        <a href="/" class="btn btn-outline">← Back</a>
+    </div>
+
+    <div class="result-banner @(_session.Passed == true ? "result-banner--pass" : _session.Passed == false ? "result-banner--fail" : "result-banner--pending")">
+        <span class="banner-icon">
+            @if (_session.Passed == true) { <text>✅</text> }
+            else if (_session.Passed == false) { <text>❌</text> }
+            else { <text>⏳</text> }
+        </span>
+        <span class="banner-text">
+            @(_session.Passed == true ? "PASS" : _session.Passed == false ? "FAIL" : _session.Status)
+        </span>
+        @if (_session.FlatnessErrorMm.HasValue)
+        {
+            <span class="banner-sub">
+                Flatness Error: <strong>@_session.FlatnessErrorMm.Value.ToString("F4") mm</strong>
+                vs Tolerance: <strong>±@_session.ToleranceMm.ToString("F2") mm</strong>
+            </span>
+        }
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-box">
+            <span class="stat-label">Points Inspected</span>
+            <span class="stat-val">@_session.PointCount.ToString("N0")</span>
+        </div>
+        <div class="stat-box @(_session.OutOfToleranceCount > 0 ? "stat-box--warn" : "")">
+            <span class="stat-label">Out of Tolerance</span>
+            <span class="stat-val">@(_session.OutOfToleranceCount?.ToString() ?? "—")</span>
+        </div>
+        <div class="stat-box">
+            <span class="stat-label">Min Deviation</span>
+            <span class="stat-val">@(_session.MinDeviationMm?.ToString("F4") ?? "—") mm</span>
+        </div>
+        <div class="stat-box">
+            <span class="stat-label">Max Deviation</span>
+            <span class="stat-val">@(_session.MaxDeviationMm?.ToString("F4") ?? "—") mm</span>
+        </div>
+        <div class="stat-box">
+            <span class="stat-label">RMS Deviation</span>
+            <span class="stat-val">@(_session.RmsDeviationMm?.ToString("F4") ?? "—") mm</span>
+        </div>
+        <div class="stat-box">
+            <span class="stat-label">Flatness Error</span>
+            <span class="stat-val">@(_session.FlatnessErrorMm?.ToString("F4") ?? "—") mm</span>
+        </div>
+    </div>
+
+    @if (_session.DeviationSnapshot.Count > 0)
+    {
+        <div class="section-header">
+            <h2>Point Deviation Map <small>(최대 500점 표시)</small></h2>
+        </div>
+
+        <div class="heatmap-legend">
+            <span class="legend-item"><span class="dot dot--pass"></span> In Tolerance</span>
+            <span class="legend-item"><span class="dot dot--fail"></span> Out of Tolerance</span>
+        </div>
+
+        <div class="table-wrapper">
+            <table class="inspection-table deviation-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>X</th>
+                        <th>Y</th>
+                        <th>Z</th>
+                        <th>Deviation (mm)</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @{ int idx = 1; }
+                    @foreach (var p in _session.DeviationSnapshot)
+                    {
+                        <tr class="@(p.OutOfTolerance ? "row--fail" : "row--pass")">
+                            <td class="td-index">@idx++</td>
+                            <td class="td-mono">@p.X.ToString("F3")</td>
+                            <td class="td-mono">@p.Y.ToString("F3")</td>
+                            <td class="td-mono">@p.Z.ToString("F3")</td>
+                            <td>
+                                <div class="dev-bar-container">
+                                    <div class="dev-bar @(p.OutOfTolerance ? "dev-bar--fail" : "dev-bar--pass")"
+                                         style="width: @GetBarWidth(p.DeviationMm)%"></div>
+                                    <span class="dev-value">@p.DeviationMm.ToString("+0.0000;-0.0000;0.0000")</span>
+                                </div>
+                            </td>
+                            <td>
+                                @if (p.OutOfTolerance)
+                                {
+                                    <span class="badge badge--fail">✗ OOT</span>
+                                }
+                                else
+                                {
+                                    <span class="badge badge--pass">✓ OK</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    SessionDetailDto? _session;
+    bool _loading = true;
+    double _maxAbsDev;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _session = await Http.GetFromJsonAsync<SessionDetailDto>($"api/inspections/{Id}");
+            if (_session?.DeviationSnapshot.Count > 0)
+                _maxAbsDev = _session.DeviationSnapshot.Max(p => Math.Abs(p.DeviationMm));
+        }
+        catch { }
+        finally { _loading = false; }
+    }
+
+    string GetBarWidth(double deviation) =>
+        _maxAbsDev > 0
+            ? (Math.Min(Math.Abs(deviation) / _maxAbsDev * 100, 100)).ToString("F0")
+            : "0";
+
+    record PointDeviationDto(double X, double Y, double Z, double DeviationMm, bool OutOfTolerance);
+
+    class SessionDetailDto
+    {
+        public int Id { get; set; }
+        public string PartName { get; set; } = string.Empty;
+        public string PartNumber { get; set; } = string.Empty;
+        public string FileName { get; set; } = string.Empty;
+        public int PointCount { get; set; }
+        public double ToleranceMm { get; set; }
+        public bool? Passed { get; set; }
+        public double? FlatnessErrorMm { get; set; }
+        public double? MinDeviationMm { get; set; }
+        public double? MaxDeviationMm { get; set; }
+        public double? RmsDeviationMm { get; set; }
+        public int? OutOfToleranceCount { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public List<PointDeviationDto> DeviationSnapshot { get; set; } = [];
+    }
+}

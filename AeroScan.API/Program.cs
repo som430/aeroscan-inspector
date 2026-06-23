@@ -28,8 +28,8 @@ builder.Services.AddSwaggerGen(c =>
 // Blazor 프론트 허용 (CORS)
 builder.Services.AddCors(opt =>
 	opt.AddDefaultPolicy(policy =>
-		policy.WithOrigins("http://localhost:5001", "https://localhost:7001")
-			  .AllowAnyHeader()
+		policy.WithOrigins("http://localhost:5001", "https://localhost:7001", "https://localhost:7085")
+              .AllowAnyHeader()
 			  .AllowAnyMethod()));
 
 var app = builder.Build();

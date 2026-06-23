@@ -1,0 +1,24 @@
+﻿@inherits LayoutComponentBase
+
+<div class="layout">
+    <header class="header">
+        <div class="header-inner">
+            <div class="logo">
+                <span class="logo-icon">✈</span>
+                <span class="logo-text">AeroScan <span class="logo-accent">Inspector</span></span>
+            </div>
+            <nav class="nav">
+                <a href="/" class="nav-link">Dashboard</a>
+                <a href="/new-inspection" class="nav-link nav-link--primary">+ New Inspection</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="main">
+        @Body
+    </main>
+
+    <footer class="footer">
+        <p>AeroScan Inspector — Point Cloud Geometric Metrology</p>
+    </footer>
+</div>
