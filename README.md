@@ -170,5 +170,15 @@ Equivalent to ISO 1101 flatness measurement used in CMM metrology workflows.
 
 ---
 
+
+## Docker
+
+### Run with Docker Compose
+docker-compose up --build
+| Service | URL |
+|---|---|
+| API (Swagger) | http://localhost:8080/swagger |
+| Blazor UI | http://localhost:8081 |
+
 ## License
 MIT
