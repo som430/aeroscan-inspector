@@ -27,4 +27,4 @@ jobs:
         run: dotnet build AeroScan.sln --no-restore -c Release
 
       - name: Test
-        run: echo "No test projects yet"
+        run: dotnet test AeroScan.sln --no-build -c Release --logger "console;verbosity=normal"

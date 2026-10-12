@@ -1,10 +1,12 @@
 # ✈ AeroScan Inspector
 
-**Point cloud flatness inspection for aerospace manufacturing.**
+**Point cloud flatness inspection — ASP.NET Core API + Blazor WebAssembly.**
 
-A cloud-native web application that ingests 3D scan data (.csv / .ply), fits a best-fit plane using PCA + Least Squares, and computes per-point geometric deviations — producing a pass/fail flatness verdict against a configurable tolerance.
+A web application that ingests 3D scan data (.csv / .ply), fits a best-fit plane with PCA (total least squares), and computes per-point signed deviations — producing a pass/fail flatness verdict against a configurable tolerance.
 
 ![CI](https://github.com/som430/aeroscan-inspector/actions/workflows/ci.yml/badge.svg)
+
+> Personal learning project. The sample data is synthetic; this is not a production metrology system.
 
 ---
 
@@ -24,9 +26,11 @@ A cloud-native web application that ingests 3D scan data (.csv / .ply), fits a b
                │  project reference
 ┌──────────────▼──────────────────────────────┐
 │  AeroScan.PointCloud  (Class Library)       │
-│  Point3D · Plane3D (PCA + Least Squares)    │
+│  Plane3D (PCA) · Vector3D (double)          │
 │  PointCloudParser · GeometryInspector       │
-└─────────────────────────────────────────────┘
+└──────────────▲──────────────────────────────┘
+               │  xUnit
+        AeroScan.PointCloud.Tests
 ```
 
 ## Tech Stack
@@ -36,21 +40,24 @@ A cloud-native web application that ingests 3D scan data (.csv / .ply), fits a b
 | Backend | ASP.NET Core 8, C# 12 |
 | ORM | Entity Framework Core 8 + SQLite |
 | Frontend | Blazor WebAssembly |
-| Geometry | System.Numerics.Vector3 (no external deps) |
-| CI | GitHub Actions |
+| Geometry | Hand-written double-precision vector math and 3×3 Jacobi eigen-solver (no external deps) |
+| Tests | xUnit |
+| CI | GitHub Actions (restore → build → test) |
+| Container | Docker Compose (API + nginx-served Blazor) |
 
 ---
 
 ## Features
 
 - **Point cloud ingestion** — Upload `.csv` or ASCII `.ply` files
-- **Best-fit plane fitting** — PCA covariance matrix + Least Squares method
-- **Geometric deviation analysis** — Signed distance per point, flatness error, min/max/RMS
+- **Best-fit plane fitting** — PCA on the covariance matrix; works for any plane orientation, including vertical
+- **Geometric deviation analysis** — Signed distance per point, flatness (deviation range), min/max/RMS
 - **Pass/Fail verdict** — Configurable tolerance per inspection session
+- **Degenerate input handling** — fewer than 3 points or collinear points are reported with a reason instead of throwing
 - **Deviation heatmap** — Per-point colour-coded table (up to 500 points)
 - **Inspection history** — Persistent sessions via EF Core + SQLite
-- **REST API** — Full CRUD + file upload, Swagger UI
-- **GitHub Actions CI** — Auto build & test on every push
+- **REST API** — Create / list / detail / delete + file upload, Swagger UI
+- **CI** — Build and unit tests on every push and pull request to `main`
 
 ---
 
@@ -62,15 +69,22 @@ A cloud-native web application that ingests 3D scan data (.csv / .ply), fits a b
 ### Run API
 ```bash
 cd AeroScan.API
-dotnet run
+dotnet run --launch-profile https
 # Swagger UI → https://localhost:7289/swagger
 ```
 
 ### Run Blazor Frontend
 ```bash
 cd AeroScan.Blazor
-dotnet run
+dotnet run --launch-profile https
 # Open → https://localhost:7085
+```
+
+The SQLite database (`aeroscan.db`) is created automatically on first start.
+
+### Run Tests
+```bash
+dotnet test
 ```
 
 ---
@@ -101,15 +115,15 @@ curl -X POST https://localhost:7289/api/inspections/1/upload \
   -F "file=@samples/wing_panel_sample.csv"
 ```
 
-### Example — Response
+### Example — Response (for `samples/wing_panel_sample.csv`)
 ```json
 {
   "passed": false,
-  "totalPoints": 27,
-  "flatnessErrorMm": 0.8384,
-  "minDeviationMm": -0.0768,
-  "maxDeviationMm": 0.7615,
-  "rmsDeviationMm": 0.1520,
+  "totalPoints": 40,
+  "flatnessErrorMm": 0.8327,
+  "minDeviationMm": -0.0399,
+  "maxDeviationMm": 0.7928,
+  "rmsDeviationMm": 0.1275,
   "outOfToleranceCount": 1,
   "toleranceMm": 0.5
 }
@@ -139,46 +153,50 @@ end_header
 10.0 0.0 0.001
 ```
 
-A sample file with a synthetic OOT defect is included at `samples/wing_panel_sample.csv`.
+`samples/wing_panel_sample.csv` is a synthetic 8 × 5 grid (50 mm pitch) with a slight tilt, ±0.02 mm noise and one 0.8 mm bump.
 
 ---
 
-## Geometric Metrology: How it works
+## How it works
 
-1. **Centroid** — compute mean X, Y, Z
-2. **Least Squares** — solve normal equations for best-fit plane Z = aX + bY + c
-3. **Normal vector** — derived as (-a, -b, 1), normalized
-4. **Signed distance** — `Normal · (P − Origin)` per point
-5. **Flatness error** — `max_deviation − min_deviation`
-6. **Pass/Fail** — `flatness_error ≤ tolerance`
+1. **Centroid** — mean of X, Y, Z
+2. **Covariance** — 3×3 covariance matrix of the centred points
+3. **Eigen-decomposition** — cyclic Jacobi rotations (the matrix is real symmetric)
+4. **Normal vector** — eigenvector of the smallest eigenvalue; sign fixed so the dominant component is positive, so the same input always gives the same normal
+5. **Degenerate check** — if the second-smallest eigenvalue is ~0 the points are collinear and no plane is defined
+6. **Signed distance** — `Normal · (P − Centroid)` per point
+7. **Flatness** — `max_deviation − min_deviation`
+8. **Pass/Fail** — `flatness ≤ tolerance`
 
-Equivalent to ISO 1101 flatness measurement used in CMM metrology workflows.
+### Why PCA instead of `Z = aX + bY + c`
+
+The first version regressed Z on X and Y and stored vectors as `float`. Two cases broke it, and both are now unit tests:
+
+| Case | Regression + `float` | PCA + `double` |
+|---|---|---|
+| Vertical plane `x = 5` | normal equations singular → no plane | normal `(1, 0, 0)` |
+| 0.001 mm bump at 1,000 m (1e6 mm) offset | flatness ≈ 0.000002 mm (bump lost to rounding) | flatness 0.001 mm |
+
+### Limitations
+
+- Flatness here is the deviation range from the **least-squares** plane. ISO 1101 defines flatness by the **minimum zone** (the closest pair of parallel planes enclosing all points). The least-squares value is never smaller than the minimum-zone value, so this check errs on the side of rejecting parts.
+- A point is flagged as out of tolerance when `|deviation| > tolerance`, while the overall verdict uses the full deviation range; the two are reported separately on purpose.
+- The detail view stores at most 500 points per session.
 
 ---
-
-## Boeing BKETC Relevance
-
-| JD Requirement | Implementation |
-|---|---|
-| C# OOP | All layers in C# 12 |
-| REST API | ASP.NET Core Web API, full CRUD |
-| Cloud / Microservice architecture | Decoupled API + PointCloud library |
-| Blazor (preferred) | Blazor WebAssembly frontend |
-| ORM / Database | EF Core 8 + SQLite |
-| CI/CD | GitHub Actions |
-| Point Cloud / Geometric Metrology | Core inspection engine |
-
----
-
 
 ## Docker
 
-### Run with Docker Compose
+```bash
 docker-compose up --build
+```
+
 | Service | URL |
 |---|---|
 | API (Swagger) | http://localhost:8080/swagger |
 | Blazor UI | http://localhost:8081 |
+
+In the container the Blazor app reads `wwwroot/appsettings.json` (`ApiBaseUrl` = `http://localhost:8080/`); local runs use `appsettings.Development.json`. The API's allowed CORS origins can be overridden with `Cors__AllowedOrigins__0`, `Cors__AllowedOrigins__1`, …
 
 ## License
 MIT

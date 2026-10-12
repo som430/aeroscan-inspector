@@ -124,7 +124,7 @@ public class InspectionService
 			{
 				session.Status = "Failed";
 				await _db.SaveChangesAsync();
-				throw new InvalidOperationException("점이 3개 미만입니다.");
+				throw new InvalidOperationException(result.FailureReason ?? "평면을 정의할 수 없는 점군입니다.");
 			}
 
 			session.Passed = result.Passed;
