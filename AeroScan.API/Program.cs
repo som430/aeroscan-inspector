@@ -25,12 +25,14 @@ builder.Services.AddSwaggerGen(c =>
 	});
 });
 
-// Blazor 프론트 허용 (CORS)
+// Blazor 프론트 허용 (CORS) — 로컬 실행(launchSettings)과 docker-compose(8081) 주소
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+	?? new[] { "https://localhost:7085", "http://localhost:5048", "http://localhost:8081" };
 builder.Services.AddCors(opt =>
 	opt.AddDefaultPolicy(policy =>
-		policy.WithOrigins("http://localhost:5001", "https://localhost:7001", "https://localhost:7085")
-              .AllowAnyHeader()
-			  .AllowAnyMethod()));
+		policy.WithOrigins(allowedOrigins)
+			.AllowAnyHeader()
+			.AllowAnyMethod()));
 
 var app = builder.Build();
 
